@@ -971,22 +971,82 @@ export default function App() {
     setActiveTab('editor');
   };
 
-  // Generate Google Apps Script code
-  const handleGenerateScript = async () => {
+  // Generate Google Apps Script code (Client-side execution for 100% reliability)
+  const handleGenerateScript = () => {
     setIsGeneratingScript(true);
     try {
-      const res = await fetch('/api/generate-apps-script', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: currentExam.title,
-          description: currentExam.description,
-          questions: currentExam.questions
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setScriptCode(data.scriptCode);
+      const title = currentExam.title || 'แบบทดสอบ';
+      const description = currentExam.description || 'สร้างอัตโนมัติโดย QuizForm';
+      const questions = currentExam.questions || [];
+
+      const script = `/**
+ * Google Apps Script เพื่อสร้าง Google Form สำหรับ: "${title.replace(/"/g, '\\"')}"
+ * สร้างโดย QuizForm (Non-AI Version)
+ * 
+ * วิธีใช้งาน:
+ * 1. ไปที่ https://script.google.com แล้วสร้าง "โปรเจกต์ใหม่ (New Project)"
+ * 2. วางโค้ดนี้ลงใน Code.gs
+ * 3. คลิกปุ่ม "เรียกใช้ (Run)" (อนุญาตสิทธิ์ตามขั้นตอน)
+ * 4. ตรวจสอบใน Google Drive จะพบ Google Form และ Quiz ที่สร้างเสร็จสมบูรณ์
+ */
+
+function createExamGoogleForm() {
+  var form = FormApp.create('${title.replace(/'/g, "\\'")}');
+  
+  form.setDescription('${description.replace(/'/g, "\\'")}');
+  form.setIsQuiz(true);
+  form.setCollectEmail(true);
+  form.setRequireLogin(true);
+  
+  var questionsData = ${JSON.stringify(questions, null, 2)};
+  
+  for (var i = 0; i < questionsData.length; i++) {
+    var q = questionsData[i];
+    var titleText = (i + 1) + ". " + q.question;
+    var points = q.points || 1;
+    
+    if (q.type === 'MULTIPLE_CHOICE' || q.type === 'TRUE_FALSE') {
+      var item = form.addMultipleChoiceItem();
+      item.setTitle(titleText);
+      item.setPoints(points);
+      item.setHelpText(q.explanation || '');
+      
+      var choices = [];
+      for (var j = 0; j < q.choices.length; j++) {
+        var choiceText = q.choices[j];
+        var isCorrect = (choiceText === q.correctAnswer);
+        choices.push(item.createChoice(choiceText, isCorrect));
+      }
+      item.setChoices(choices);
+      
+    } else if (q.type === 'SHORT_ANSWER') {
+      var item = form.addTextItem();
+      item.setTitle(titleText);
+      item.setPoints(points);
+      item.setHelpText((q.explanation ? q.explanation + ' ' : '') + '[เฉลย: ' + q.correctAnswer + ']');
+      
+    } else if (q.type === 'MULTIPLE_SELECT') {
+      var item = form.addCheckboxItem();
+      item.setTitle(titleText);
+      item.setPoints(points);
+      item.setHelpText(q.explanation || '');
+      
+      var correctAnswers = Array.isArray(q.correctAnswer) ? q.correctAnswer : [q.correctAnswer];
+      var choices = [];
+      for (var j = 0; j < q.choices.length; j++) {
+        var choiceText = q.choices[j];
+        var isCorrect = correctAnswers.includes(choiceText);
+        choices.push(item.createChoice(choiceText, isCorrect));
+      }
+      item.setChoices(choices);
+    }
+  }
+  
+  Logger.log('สร้าง Google Form สำเร็จ! ลิงก์แก้ไข: ' + form.getEditUrl());
+}
+`;
+
+      setScriptCode(script);
       setActiveTab('export');
     } catch (err: any) {
       alert('เกิดข้อผิดพลาดในการสร้าง Apps Script: ' + err.message);
@@ -1327,6 +1387,18 @@ export default function App() {
                 >
                   <Plus className="w-4 h-4" />
                   <span>เพิ่มข้อสอบ</span>
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm('คุณต้องการลบข้อสอบทั้งหมดในชุดนี้ใช่หรือไม่?')) {
+                      setCurrentExam({ ...currentExam, questions: [] });
+                    }
+                  }}
+                  disabled={currentExam.questions.length === 0}
+                  className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-sm border border-rose-200 transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>ลบทั้งหมด</span>
                 </button>
                 <button
                   onClick={handleGenerateScript}

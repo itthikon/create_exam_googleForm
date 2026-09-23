@@ -1,0 +1,6 @@
+{
+  "name": "QuizForm Creator - Auto Exam Importer from Word, PDF, Text",
+  "description": "Automatically import exams, propositions, choices, and answers from Word, PDF, and Text files without AI and export to Google Forms.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

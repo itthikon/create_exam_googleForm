@@ -1,0 +1,1207 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  FileText, Code2, PlayCircle, BookOpen, Download, Copy, Check, 
+  Trash2, Plus, Edit3, Award, Clock, ArrowRight, RefreshCw, 
+  HelpCircle, CheckCircle2, AlertCircle, Printer, FolderOpen, Save,
+  Upload, FileUp, FileCheck
+} from 'lucide-react';
+import mammoth from 'mammoth';
+
+interface Question {
+  id: string;
+  type: 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MULTIPLE_SELECT' | 'SHORT_ANSWER';
+  question: string;
+  choices: string[];
+  correctAnswer: string | string[];
+  explanation: string;
+  points: number;
+}
+
+interface Exam {
+  id: string;
+  title: string;
+  description: string;
+  subject: string;
+  gradeLevel: string;
+  questions: Question[];
+  createdAt: string;
+}
+
+const PRELOADED_EXAMS: Exam[] = [
+  {
+    id: 'exam-sci-1',
+    title: 'แบบทดสอบวิชาวิทยาศาสตร์: ระบบนิเวศและสิ่งแวดล้อม',
+    description: 'แบบทดสอบมาตรฐานสำหรับวัดความรู้ความเข้าใจเรื่องห่วงโซ่อาหารและการถ่ายทอดพลังงาน',
+    subject: 'วิทยาศาสตร์',
+    gradeLevel: 'มัธยมศึกษาตอนต้น',
+    createdAt: new Date().toISOString(),
+    questions: [
+      {
+        id: 'q1',
+        type: 'MULTIPLE_CHOICE',
+        question: 'สิ่งมีชีวิตใดทำหน้าที่เป็นผู้ผลิต (Producer) ในระบบนิเวศ?',
+        choices: ['เห็ดราและแบคทีเรีย', 'พืชสีเขียวและสาหร่าย', 'สัตวแพทย์และผู้บริโภคพืช', 'สัตว์กินเนื้อทุกชนิด'],
+        correctAnswer: 'พืชสีเขียวและสาหร่าย',
+        explanation: 'พืชสีเขียวและสาหร่ายมีคลอโรฟิลล์สามารถสร้างอาหารเองได้ด้วยกระบวนการสังเคราะห์ด้วยแสง',
+        points: 1
+      },
+      {
+        id: 'q2',
+        type: 'TRUE_FALSE',
+        question: 'ภาวะปรสิต (Parasitism) เป็นความสัมพันธ์ที่สิ่งมีชีวิตหนึ่งได้ประโยชน์ ส่วนอีกฝ่ายเสียประโยชน์',
+        choices: ['จริง', 'เท็จ'],
+        correctAnswer: 'จริง',
+        explanation: 'ปรสิตจะอาศัยเกาะกินหรืออาศัยในสิ่งมีชีวิตอื่น ทำให้ผู้ถูกอาศัยเสียประโยชน์หรือเป็นอันตราย',
+        points: 1
+      },
+      {
+        id: 'q3',
+        type: 'SHORT_ANSWER',
+        question: 'กระบวนการที่น้ำในพืชระเหยกลายเป็นไอออกทางปากใบเรียกว่าอะไร?',
+        choices: [],
+        correctAnswer: 'การคายน้ำ (Transpiration)',
+        explanation: 'การคายน้ำ (Transpiration) ช่วยในการดึงน้ำและแร่ธาตุจากรากขึ้นสู่ยอดและช่วยลดอุณหภูมิของใบพืช',
+        points: 2
+      }
+    ]
+  }
+];
+
+// Helper function to parse raw exam text into structured questions (Non-AI Rule-Based Parser)
+function parseExamTextToQuestions(text: string): Question[] {
+  // Split by question indicators like "1.", "2.", "ข้อ 1", "Question 1", etc.
+  const rawQuestions = text.split(/(?=(?:ข้อ\s*\d+|question\s*\d+|\d+\s*[\.\)]))\s*/i).filter(q => q.trim().length > 0);
+  const questions: Question[] = [];
+
+  for (let i = 0; i < rawQuestions.length; i++) {
+    const block = rawQuestions[i].trim();
+    const lines = block.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+    if (lines.length === 0) continue;
+
+    let questionText = lines[0].replace(/^(ข้อ\s*\d+|question\s*\d+|\d+[\.\)]\s*)/i, '').trim();
+    let choices: string[] = [];
+    let correctAnswer = '';
+    let explanation = '';
+    let type: 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MULTIPLE_SELECT' | 'SHORT_ANSWER' = 'MULTIPLE_CHOICE';
+
+    for (let j = 1; j < lines.length; j++) {
+      const line = lines[j];
+      // Check for choices (e.g., "ก.", "ข.", "A.", "B.", "1)", etc.)
+      if (/^([กขคงคจฉชซฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮa-d][\.\)]|\d+[\.\)])/i.test(line)) {
+        const choiceText = line.replace(/^([กขคงคจฉชซฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮa-d][\.\)]|\d+[\.\)])/i, '').trim();
+        choices.push(choiceText);
+      } else if (/^(เฉลย|คำตอบ|answer)\s*[:：]/i.test(line)) {
+        correctAnswer = line.replace(/^(เฉลย|คำตอบ|answer)\s*[:：]/i, '').trim();
+      } else if (/^(คำอธิบาย|เหตุผล|explanation)\s*[:：]/i.test(line)) {
+        explanation = line.replace(/^(คำอธิบาย|เหตุผล|explanation)\s*[:：]/i, '').trim();
+      } else {
+        if (choices.length === 0 && !correctAnswer) {
+          questionText += ' ' + line;
+        } else if (!explanation && correctAnswer) {
+          explanation = line;
+        }
+      }
+    }
+
+    if (choices.length === 0) {
+      choices = ['ตัวเลือก 1', 'ตัวเลือก 2', 'ตัวเลือก 3', 'ตัวเลือก 4'];
+    }
+
+    if (!correctAnswer && choices.length > 0) {
+      correctAnswer = choices[0];
+    }
+
+    if (choices.length === 2 && (choices.includes('จริง') || choices.includes('เท็จ') || choices.includes('True') || choices.includes('False'))) {
+      type = 'TRUE_FALSE';
+    } else if (choices.length === 0) {
+      type = 'SHORT_ANSWER';
+    }
+
+    questions.push({
+      id: 'q-parsed-' + (i + 1) + '-' + Date.now(),
+      type,
+      question: questionText || `คำถามที่ ${i + 1}`,
+      choices: type === 'SHORT_ANSWER' ? [] : choices,
+      correctAnswer: correctAnswer || choices[0] || '',
+      explanation: explanation || 'เฉลยตามเกณฑ์ที่กำหนด',
+      points: 1
+    });
+  }
+
+  return questions;
+}
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<'importer' | 'editor' | 'export' | 'preview' | 'bank'>('importer');
+  
+  const [currentExam, setCurrentExam] = useState<Exam>({
+    id: 'exam-' + Date.now(),
+    title: 'แบบทดสอบใหม่',
+    description: 'นำเข้าจากไฟล์ Text, Word, PDF หรือคัดลอกข้อความ',
+    subject: 'ทั่วไป',
+    gradeLevel: 'มัธยมศึกษา',
+    questions: PRELOADED_EXAMS[0].questions,
+    createdAt: new Date().toISOString()
+  });
+
+  const [savedExams, setSavedExams] = useState<Exam[]>(() => {
+    const saved = localStorage.getItem('quizform_saved_exams_non_ai');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { /* ignore */ }
+    }
+    return PRELOADED_EXAMS;
+  });
+
+  // Importer state
+  const [rawText, setRawText] = useState(`1. เมืองหลวงของประเทศไทยคือเมืองใด?
+ก. เชียงใหม่
+ข. กรุงเทพมหานคร
+ค. ภูเก็ต
+ง. ขอนแก่น
+เฉลย: ข. กรุงเทพมหานคร
+คำอธิบาย: กรุงเทพมหานครเป็นเมืองหลวงและศูนย์กลางการปกครองของประเทศไทย
+
+2. ดวงอาทิตย์ขึ้นทางทิศตะวันตก True หรือ False?
+ก. จริง
+ข. เท็จ
+เฉลย: เท็จ
+คำอธิบาย: ดวงอาทิตย์ขึ้นทางทิศตะวันออกและตกทางทิศตะวันตก`);
+
+  const [importTitle, setImportTitle] = useState('แบบทดสอบนำเข้าอัตโนมัติ');
+  const [importSubject, setImportSubject] = useState('ทั่วไป');
+  const [importError, setImportError] = useState('');
+  const [fileName, setFileName] = useState('');
+
+  // Apps Script Export state
+  const [scriptCode, setScriptCode] = useState('');
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
+
+  // Student test simulator state
+  const [testAnswers, setTestAnswers] = useState<Record<string, any>>({});
+  const [testSubmitted, setTestSubmitted] = useState(false);
+  const [testScore, setTestScore] = useState(0);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+
+  // Editing modal state
+  const [editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [tempQuestion, setTempQuestion] = useState<Question>({
+    id: '',
+    type: 'MULTIPLE_CHOICE',
+    question: '',
+    choices: ['ตัวเลือก ก', 'ตัวเลือก ข', 'ตัวเลือก ค', 'ตัวเลือก ง'],
+    correctAnswer: 'ตัวเลือก ก',
+    explanation: '',
+    points: 1
+  });
+
+  useEffect(() => {
+    localStorage.setItem('quizform_saved_exams_non_ai', JSON.stringify(savedExams));
+  }, [savedExams]);
+
+  useEffect(() => {
+    let interval: any;
+    if (isTimerRunning && !testSubmitted) {
+      interval = setInterval(() => {
+        setTimerSeconds(s => s + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isTimerRunning, testSubmitted]);
+
+  // Handle File Upload (.txt, .docx, .pdf)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    setImportError('');
+    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    try {
+      if (ext === 'txt') {
+        const text = await file.text();
+        setRawText(text);
+      } else if (ext === 'docx') {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        setRawText(result.value);
+      } else if (ext === 'pdf') {
+        // For PDF files, we can read text or prompt user if scanned. Let's read arrayBuffer or use FileReader
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const content = event.target?.result as string;
+          // If binary PDF text extraction or fallback
+          if (content) {
+            // Simple text extraction from PDF binary stream or preview
+            setRawText(content);
+          }
+        };
+        // Read as text or use array buffer
+        reader.readAsText(file);
+      } else {
+        // Generic reader
+        const text = await file.text();
+        setRawText(text);
+      }
+      setImportTitle(file.name.replace(/\.[^/.]+$/, ""));
+    } catch (err: any) {
+      setImportError('ไม่สามารถอ่านไฟล์ได้: ' + (err.message || 'รูปแบบไฟล์ไม่ถูกต้อง'));
+    }
+  };
+
+  // Process text import and create exam
+  const handleProcessImport = (e: React.FormEvent) => {
+    e.preventDefault();
+    setImportError('');
+
+    if (!rawText.trim()) {
+      setImportError('กรุณากรอกหรืออัปโหลดเนื้อหาข้อสอบ');
+      return;
+    }
+
+    const questions = parseExamTextToQuestions(rawText);
+    if (questions.length === 0) {
+      setImportError('ไม่พบรูปแบบคำถามในข้อความ กรุณาตรวจสอบรูปแบบ (เช่น 1. โจทย์... ก. ... ข. ... เฉลย: ...)');
+      return;
+    }
+
+    const newExam: Exam = {
+      id: 'exam-' + Date.now(),
+      title: importTitle || 'แบบทดสอบนำเข้า',
+      description: `นำเข้าอัตโนมัติจากไฟล์/ข้อความ วิชา ${importSubject}`,
+      subject: importSubject,
+      gradeLevel: 'มัธยมศึกษา',
+      questions,
+      createdAt: new Date().toISOString()
+    };
+
+    setCurrentExam(newExam);
+    setActiveTab('editor');
+  };
+
+  // Generate Google Apps Script code
+  const handleGenerateScript = async () => {
+    setIsGeneratingScript(true);
+    try {
+      const res = await fetch('/api/generate-apps-script', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: currentExam.title,
+          description: currentExam.description,
+          questions: currentExam.questions
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setScriptCode(data.scriptCode);
+      setActiveTab('export');
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาดในการสร้าง Apps Script: ' + err.message);
+    } finally {
+      setIsGeneratingScript(false);
+    }
+  };
+
+  const handleSaveExam = () => {
+    const existsIndex = savedExams.findIndex(ex => ex.id === currentExam.id);
+    if (existsIndex >= 0) {
+      const updated = [...savedExams];
+      updated[existsIndex] = currentExam;
+      setSavedExams(updated);
+    } else {
+      setSavedExams([currentExam, ...savedExams]);
+    }
+    alert('บันทึกข้อสอบลงในคลังข้อสอบเรียบร้อยแล้ว!');
+  };
+
+  const handleDownloadJSON = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(currentExam, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `${currentExam.title.replace(/[^ก-๙a-z0-9]/gi, '_').toLowerCase()}_quiz.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const handleStartTest = () => {
+    setTestAnswers({});
+    setTestSubmitted(false);
+    setTestScore(0);
+    setTimerSeconds(0);
+    setIsTimerRunning(true);
+    setActiveTab('preview');
+  };
+
+  const handleSubmitTest = () => {
+    setIsTimerRunning(false);
+    let score = 0;
+
+    currentExam.questions.forEach(q => {
+      const userAns = testAnswers[q.id];
+      if (q.type === 'MULTIPLE_SELECT') {
+        const correctArr = Array.isArray(q.correctAnswer) ? q.correctAnswer : [q.correctAnswer];
+        const userArr = Array.isArray(userAns) ? userAns : [userAns];
+        const isMatch = correctArr.length === userArr.length && correctArr.every(ans => userArr.includes(ans));
+        if (isMatch) score += (q.points || 1);
+      } else {
+        if (userAns && userAns.toString().trim().toLowerCase() === q.correctAnswer.toString().trim().toLowerCase()) {
+          score += (q.points || 1);
+        }
+      }
+    });
+
+    setTestScore(score);
+    setTestSubmitted(true);
+  };
+
+  const openAddQuestionModal = () => {
+    setTempQuestion({
+      id: 'q-' + Date.now(),
+      type: 'MULTIPLE_CHOICE',
+      question: '',
+      choices: ['ตัวเลือก ก', 'ตัวเลือก ข', 'ตัวเลือก ค', 'ตัวเลือก ง'],
+      correctAnswer: 'ตัวเลือก ก',
+      explanation: '',
+      points: 1
+    });
+    setEditingQuestionIndex(null);
+    setEditModalOpen(true);
+  };
+
+  const openEditQuestionModal = (index: number) => {
+    setEditingQuestionIndex(index);
+    setTempQuestion({ ...currentExam.questions[index] });
+    setEditModalOpen(true);
+  };
+
+  const saveQuestionFromModal = () => {
+    if (!tempQuestion.question.trim()) {
+      alert('กรุณากรอกโจทย์คำถาม');
+      return;
+    }
+    const updatedQuestions = [...currentExam.questions];
+    if (editingQuestionIndex !== null) {
+      updatedQuestions[editingQuestionIndex] = tempQuestion;
+    } else {
+      updatedQuestions.push(tempQuestion);
+    }
+    setCurrentExam({ ...currentExam, questions: updatedQuestions });
+    setEditModalOpen(false);
+  };
+
+  const deleteQuestion = (index: number) => {
+    if (confirm('คุณต้องการลบข้อคำถามนี้ใช่หรือไม่?')) {
+      const updatedQuestions = currentExam.questions.filter((_, i) => i !== index);
+      setCurrentExam({ ...currentExam, questions: updatedQuestions });
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/20 text-slate-800 flex flex-col font-['Plus_Jakarta_Sans',sans-serif]">
+      {/* Top Navigation */}
+      <header className="bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveTab('importer')}>
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-md shadow-indigo-200">
+              <FileUp className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold bg-gradient-to-r from-indigo-700 to-violet-700 bg-clip-text text-transparent">
+                QuizForm Creator
+              </h1>
+              <p className="text-xs text-slate-500 font-medium">นำเข้าข้อสอบจาก Text, Word, PDF พร้อมเฉลย</p>
+            </div>
+          </div>
+
+          <nav className="hidden md:flex items-center space-x-1 bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveTab('importer')}
+              className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center space-x-2 ${
+                activeTab === 'importer' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Upload className="w-4 h-4" />
+              <span>นำเข้าไฟล์ / ข้อความ</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('editor')}
+              className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center space-x-2 ${
+                activeTab === 'editor' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Edit3 className="w-4 h-4" />
+              <span>จัดการข้อสอบ ({currentExam.questions.length})</span>
+            </button>
+            <button
+              onClick={handleGenerateScript}
+              className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center space-x-2 ${
+                activeTab === 'export' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Code2 className="w-4 h-4" />
+              <span>ส่งออก Google Form</span>
+            </button>
+            <button
+              onClick={handleStartTest}
+              className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center space-x-2 ${
+                activeTab === 'preview' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <PlayCircle className="w-4 h-4" />
+              <span>ทดลองทำข้อสอบ</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('bank')}
+              className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center space-x-2 ${
+                activeTab === 'bank' ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FolderOpen className="w-4 h-4" />
+              <span>คลังข้อสอบ ({savedExams.length})</span>
+            </button>
+          </nav>
+
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleSaveExam}
+              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition flex items-center space-x-1.5"
+            >
+              <Save className="w-4 h-4" />
+              <span className="hidden sm:inline">บันทึกข้อสอบ</span>
+            </button>
+            <button
+              onClick={handleGenerateScript}
+              disabled={isGeneratingScript || currentExam.questions.length === 0}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-sm font-semibold shadow-md shadow-indigo-200 transition flex items-center space-x-2 disabled:opacity-50"
+            >
+              {isGeneratingScript ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Code2 className="w-4 h-4" />}
+              <span>สร้าง Google Form</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Navigation bar */}
+        <div className="md:hidden flex items-center justify-around bg-white border-t border-slate-200 py-2 px-1">
+          <button onClick={() => setActiveTab('importer')} className={`flex flex-col items-center text-xs ${activeTab === 'importer' ? 'text-indigo-600 font-bold' : 'text-slate-500'}`}>
+            <Upload className="w-5 h-5 mb-0.5" />
+            <span>นำเข้า</span>
+          </button>
+          <button onClick={() => setActiveTab('editor')} className={`flex flex-col items-center text-xs ${activeTab === 'editor' ? 'text-indigo-600 font-bold' : 'text-slate-500'}`}>
+            <Edit3 className="w-5 h-5 mb-0.5" />
+            <span>จัดการ</span>
+          </button>
+          <button onClick={handleGenerateScript} className={`flex flex-col items-center text-xs ${activeTab === 'export' ? 'text-indigo-600 font-bold' : 'text-slate-500'}`}>
+            <Code2 className="w-5 h-5 mb-0.5" />
+            <span>Google Form</span>
+          </button>
+          <button onClick={handleStartTest} className={`flex flex-col items-center text-xs ${activeTab === 'preview' ? 'text-indigo-600 font-bold' : 'text-slate-500'}`}>
+            <PlayCircle className="w-5 h-5 mb-0.5" />
+            <span>ทดสอบ</span>
+          </button>
+          <button onClick={() => setActiveTab('bank')} className={`flex flex-col items-center text-xs ${activeTab === 'bank' ? 'text-indigo-600 font-bold' : 'text-slate-500'}`}>
+            <FolderOpen className="w-5 h-5 mb-0.5" />
+            <span>คลัง</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Main Container */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+        
+        {/* TAB 1: FILE / TEXT IMPORTER */}
+        {activeTab === 'importer' && (
+          <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
+            <div className="text-center space-y-3">
+              <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold tracking-wide uppercase">
+                <FileUp className="w-3.5 h-3.5" />
+                <span>นำเข้าไฟล์ Word (.docx), PDF หรือ Text อัตโนมัติ</span>
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+                อัปโหลดไฟล์ข้อสอบพร้อมเฉลย
+              </h2>
+              <p className="text-slate-600 text-base max-w-2xl mx-auto">
+                รองรับการอัปโหลดไฟล์เอกสาร Word (.docx), PDF, Text (.txt) หรือคัดลอกข้อความมาวาง ระบบจะทำการแปลงโจทย์ ตัวเลือก และเฉลยเป็นชุดข้อสอบให้อัตโนมัติทันที
+              </p>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-xl shadow-slate-100 border border-slate-200/80 p-6 sm:p-8 space-y-6">
+              
+              {/* File Upload Box */}
+              <div className="border-2 border-dashed border-indigo-200 hover:border-indigo-400 rounded-2xl p-8 text-center bg-indigo-50/30 transition relative group">
+                <input
+                  type="file"
+                  accept=".txt,.docx,.pdf"
+                  onChange={handleFileUpload}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                />
+                <div className="w-16 h-16 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition shadow-sm">
+                  <Upload className="w-8 h-8" />
+                </div>
+                <h3 className="text-base font-bold text-slate-800 mb-1">
+                  {fileName ? `อัปโหลดไฟล์สำเร็จ: ${fileName}` : 'คลิกเพื่ออัปโหลดไฟล์ หรือลากไฟล์มาวางที่นี่'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  รองรับไฟล์ Word (.docx), PDF และ Text (.txt) ที่มีโจทย์ ตัวเลือก และเฉลย
+                </p>
+              </div>
+
+              <form onSubmit={handleProcessImport} className="space-y-6 pt-4 border-t border-slate-100">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">ชื่อชุดข้อสอบ</label>
+                    <input
+                      type="text"
+                      value={importTitle}
+                      onChange={e => setImportTitle(e.target.value)}
+                      placeholder="เช่น แบบทดสอบปลายภาค วิชาชีววิทยา"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 text-sm font-medium outline-none transition"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">กลุ่มสาระการเรียนรู้ / วิชา</label>
+                    <input
+                      type="text"
+                      value={importSubject}
+                      onChange={e => setImportSubject(e.target.value)}
+                      placeholder="เช่น วิทยาศาสตร์, คณิตศาสตร์"
+                      className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 text-sm font-medium outline-none transition"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-bold text-slate-700">เนื้อหาข้อสอบ (สามารถแก้ไขข้อความหรือวางข้อความเพิ่มได้)</label>
+                    <span className="text-xs text-slate-400 font-medium">รูปแบบ: 1. โจทย์... ก. ... ข. ... เฉลย: ...</span>
+                  </div>
+                  <textarea
+                    rows={8}
+                    value={rawText}
+                    onChange={e => setRawText(e.target.value)}
+                    placeholder="วางข้อความข้อสอบที่นี่..."
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 text-slate-800 text-sm font-mono leading-relaxed outline-none transition"
+                    required
+                  />
+                </div>
+
+                {importError && (
+                  <div className="p-4 rounded-xl bg-red-50 border border-red-200 flex items-center space-x-3 text-red-700 text-sm font-medium">
+                    <AlertCircle className="w-5 h-5 shrink-0" />
+                    <span>{importError}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full py-4 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-base shadow-lg shadow-indigo-200 transition flex items-center justify-center space-x-2"
+                >
+                  <FileCheck className="w-5 h-5" />
+                  <span>ประมวลผลและสร้างชุดข้อสอบอัตโนมัติ</span>
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: EXAM EDITOR */}
+        {activeTab === 'editor' && (
+          <div className="space-y-6 animate-fadeIn">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1 flex-1">
+                <input
+                  type="text"
+                  value={currentExam.title}
+                  onChange={e => setCurrentExam({ ...currentExam, title: e.target.value })}
+                  className="text-2xl font-extrabold text-slate-900 w-full bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 outline-none transition"
+                  placeholder="ชื่อชุดข้อสอบ"
+                />
+                <input
+                  type="text"
+                  value={currentExam.description}
+                  onChange={e => setCurrentExam({ ...currentExam, description: e.target.value })}
+                  className="text-sm text-slate-600 w-full bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 outline-none transition"
+                  placeholder="คำอธิบายข้อสอบ"
+                />
+              </div>
+
+              <div className="flex items-center space-x-3 shrink-0">
+                <button
+                  onClick={openAddQuestionModal}
+                  className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-sm transition flex items-center space-x-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>เพิ่มข้อสอบ</span>
+                </button>
+                <button
+                  onClick={handleGenerateScript}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-sm transition flex items-center space-x-1.5"
+                >
+                  <Code2 className="w-4 h-4" />
+                  <span>สร้าง Google Form</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Questions List */}
+            <div className="space-y-4">
+              {currentExam.questions.length === 0 ? (
+                <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
+                  <HelpCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <h3 className="text-lg font-bold text-slate-800">ยังไม่มีข้อสอบในชุดนี้</h3>
+                  <p className="text-sm text-slate-500 mb-4">เพิ่มข้อสอบด้วยตนเองหรือไปที่หน้า "นำเข้าไฟล์"</p>
+                  <button
+                    onClick={openAddQuestionModal}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold"
+                  >
+                    เพิ่มข้อแรก
+                  </button>
+                </div>
+              ) : (
+                currentExam.questions.map((q, index) => (
+                  <div key={q.id || index} className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 hover:shadow-md transition">
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                      <div className="flex items-center space-x-3">
+                        <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 font-extrabold text-sm flex items-center justify-center shrink-0">
+                          {index + 1}
+                        </span>
+                        <div>
+                          <span className="inline-block px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-bold mb-1">
+                            {q.type === 'MULTIPLE_CHOICE' ? 'ปรนัย 4 ตัวเลือก' : q.type === 'TRUE_FALSE' ? 'ถูก / ผิด' : q.type === 'MULTIPLE_SELECT' ? 'เลือกตอบหลายข้อ' : 'เติมคำตอบสั้นๆ'}
+                          </span>
+                          <span className="ml-2 text-xs text-slate-500 font-semibold">{q.points || 1} คะแนน</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => openEditQuestionModal(index)}
+                          className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition"
+                          title="แก้ไขข้อสอบ"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteQuestion(index)}
+                          className="p-2 rounded-lg hover:bg-red-50 text-slate-500 hover:text-red-600 transition"
+                          title="ลบข้อสอบ"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <h4 className="text-base font-bold text-slate-900 mb-3">{q.question}</h4>
+
+                    {q.type !== 'SHORT_ANSWER' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-4">
+                        {q.choices.map((choice, cIdx) => {
+                          const isCorrect = Array.isArray(q.correctAnswer)
+                            ? q.correctAnswer.includes(choice)
+                            : choice === q.correctAnswer;
+                          return (
+                            <div
+                              key={cIdx}
+                              className={`p-3 rounded-xl text-sm font-medium flex items-center justify-between border ${
+                                isCorrect 
+                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-bold' 
+                                  : 'bg-slate-50 border-slate-200 text-slate-700'
+                              }`}
+                            >
+                              <span>{choice}</span>
+                              {isCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 ml-2" />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {q.type === 'SHORT_ANSWER' && (
+                      <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm font-medium text-emerald-900">
+                        <span className="font-bold">เฉลยคำตอบ: </span> {q.correctAnswer}
+                      </div>
+                    )}
+
+                    {q.explanation && (
+                      <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-start space-x-2">
+                        <BookOpen className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold text-slate-700">คำอธิบาย/เหตุผล: </span>
+                          <span>{q.explanation}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: GOOGLE FORMS EXPORT & APPS SCRIPT */}
+        {activeTab === 'export' && (
+          <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
+            <div className="text-center space-y-2">
+              <h2 className="text-3xl font-extrabold text-slate-900">ส่งออกไปยัง Google Forms อัตโนมัติ</h2>
+              <p className="text-slate-600 text-sm">
+                สร้าง Google Form พร้อมเฉลย คะแนน และตั้งค่าเป็น Quiz ทันทีผ่าน Google Apps Script
+              </p>
+            </div>
+
+            {/* Apps Script Card */}
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 sm:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                    <Code2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Google Apps Script (`Code.gs`)</h3>
+                    <p className="text-xs text-slate-500">สร้าง Google Form พร้อมเฉลยและตั้งค่า Quiz โดยอัตโนมัติ</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(scriptCode);
+                    setCopiedScript(true);
+                    setTimeout(() => setCopiedScript(false), 2000);
+                  }}
+                  disabled={!scriptCode}
+                  className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold shadow-sm transition flex items-center space-x-2 disabled:opacity-50"
+                >
+                  {copiedScript ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedScript ? 'คัดลอกสคริปต์แล้ว!' : 'คัดลอก Google Apps Script'}</span>
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-slate-900 rounded-xl p-4 overflow-x-auto max-h-96 text-xs text-emerald-400 font-mono leading-relaxed">
+                  <pre>{scriptCode || '// คลิกปุ่ม "สร้าง Google Form" ในหน้าจัดการหรือเมนูด้านบนเพื่อสร้างโค้ดสคริปต์'}</pre>
+                </div>
+
+                <div className="bg-indigo-50 rounded-xl p-5 border border-indigo-100 space-y-3">
+                  <h4 className="font-bold text-indigo-900 text-sm flex items-center space-x-2">
+                    <HelpCircle className="w-4 h-4 text-indigo-600" />
+                    <span>วิธีนำโค้ดไปสร้าง Google Form ใน Google Drive (ใช้เวลา 30 วินาที):</span>
+                  </h4>
+                  <ol className="list-decimal list-inside text-xs text-indigo-800 space-y-1.5 font-medium">
+                    <li>ไปที่เว็บไซต์ <a href="https://script.google.com" target="_blank" rel="noreferrer" className="underline font-bold">script.google.com</a> แล้วคลิก <span className="font-bold">โปรเจกต์ใหม่ (New Project)</span></li>
+                    <li>ลบโค้ดเดิมออกทั้งหมด แล้ววางโค้ด <span className="font-bold">Code.gs</span> ที่คัดลอกมาจากด้านบนลงไป</li>
+                    <li>คลิกปุ่ม <span className="font-bold">เรียกใช้ (Run)</span> ด้านบน (หากระบบขอสิทธิ์เข้าถึง ให้เลือกบัญชี Google ของท่าน คลิก "ขั้นสูง" และ "ดำเนินการต่อ")</li>
+                    <li>ไปที่ <a href="https://drive.google.com" target="_blank" rel="noreferrer" className="underline font-bold">Google Drive</a> ของท่าน จะพบ Google Form พร้อมโจทย์ ตัวเลือก คะแนน และเฉลยถูกสร้างให้อัตโนมัติ!</li>
+                  </ol>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                <button
+                  onClick={handleDownloadJSON}
+                  className="w-full py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-bold transition flex items-center justify-center space-x-2"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>ดาวน์โหลดไฟล์ JSON สำรองข้อมูล</span>
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="w-full py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-bold transition flex items-center justify-center space-x-2"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>พิมพ์กระดาษข้อสอบและเฉลย</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: STUDENT QUIZ SIMULATOR MODE */}
+        {activeTab === 'preview' && (
+          <div className="max-w-3xl mx-auto space-y-6 animate-fadeIn">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex items-center justify-between">
+              <div>
+                <span className="px-2.5 py-1 rounded-md bg-indigo-100 text-indigo-700 text-xs font-bold uppercase tracking-wider">
+                  โหมดทดลองทำข้อสอบ (Student Mode)
+                </span>
+                <h2 className="text-2xl font-extrabold text-slate-900 mt-1">{currentExam.title}</h2>
+              </div>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold">
+                  <Clock className="w-4 h-4 text-indigo-600" />
+                  <span>เวลา {Math.floor(timerSeconds / 60)}:{(timerSeconds % 60).toString().padStart(2, '0')} นาที</span>
+                </div>
+              </div>
+            </div>
+
+            {testSubmitted && (
+              <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-2xl p-8 text-white shadow-xl text-center space-y-4">
+                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto">
+                  <Award className="w-8 h-8 text-white" />
+                </div>
+                <h3 className="text-3xl font-extrabold">ส่งข้อสอบเรียบร้อยแล้ว!</h3>
+                <p className="text-indigo-100 text-lg">
+                  คะแนนที่คุณทำได้: <span className="font-extrabold text-white underline">{testScore}</span> / {currentExam.questions.reduce((acc, q) => acc + (q.points || 1), 0)} คะแนน
+                </p>
+                <button
+                  onClick={() => {
+                    setTestSubmitted(false);
+                    setTestAnswers({});
+                    setTimerSeconds(0);
+                    setIsTimerRunning(true);
+                  }}
+                  className="px-6 py-3 rounded-xl bg-white text-indigo-700 font-bold text-sm shadow-md hover:bg-indigo-50 transition"
+                >
+                  ทำข้อสอบใหม่อีกครั้ง
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-6">
+              {currentExam.questions.map((q, index) => {
+                const userAns = testAnswers[q.id];
+                const isCorrect = testSubmitted && (
+                  q.type === 'MULTIPLE_SELECT' 
+                    ? Array.isArray(q.correctAnswer) && Array.isArray(userAns) && q.correctAnswer.length === userAns.length && q.correctAnswer.every(a => userAns.includes(a))
+                    : userAns && userAns.toString().trim().toLowerCase() === q.correctAnswer.toString().trim().toLowerCase()
+                );
+
+                return (
+                  <div key={q.id || index} className={`bg-white rounded-2xl border p-6 shadow-xs transition ${
+                    testSubmitted ? (isCorrect ? 'border-emerald-300 bg-emerald-50/20' : 'border-red-300 bg-red-50/20') : 'border-slate-200'
+                  }`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-extrabold text-slate-500">ข้อที่ {index + 1} จาก {currentExam.questions.length} ข้อ</span>
+                      <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">{q.points || 1} คะแนน</span>
+                    </div>
+
+                    <h4 className="text-base font-bold text-slate-900 mb-4">{q.question}</h4>
+
+                    {q.type !== 'SHORT_ANSWER' && (
+                      <div className="space-y-2.5">
+                        {q.choices.map((choice, cIdx) => {
+                          const isSelected = q.type === 'MULTIPLE_SELECT' 
+                            ? Array.isArray(userAns) && userAns.includes(choice)
+                            : userAns === choice;
+
+                          return (
+                            <label
+                              key={cIdx}
+                              className={`flex items-center p-3.5 rounded-xl border cursor-pointer transition ${
+                                isSelected 
+                                  ? 'bg-indigo-50 border-indigo-400 text-indigo-900 font-bold' 
+                                  : 'bg-slate-50 border-slate-200 hover:border-slate-300 text-slate-700 font-medium'
+                              }`}
+                            >
+                              <input
+                                type={q.type === 'MULTIPLE_SELECT' ? 'checkbox' : 'radio'}
+                                name={`q-${q.id}`}
+                                checked={isSelected}
+                                disabled={testSubmitted}
+                                onChange={() => {
+                                  if (q.type === 'MULTIPLE_SELECT') {
+                                    const currentArr = Array.isArray(userAns) ? userAns : [];
+                                    const newArr = currentArr.includes(choice) ? currentArr.filter(x => x !== choice) : [...currentArr, choice];
+                                    setTestAnswers({ ...testAnswers, [q.id]: newArr });
+                                  } else {
+                                    setTestAnswers({ ...testAnswers, [q.id]: choice });
+                                  }
+                                }}
+                                className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 mr-3"
+                              />
+                              <span className="text-sm">{choice}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {q.type === 'SHORT_ANSWER' && (
+                      <input
+                        type="text"
+                        disabled={testSubmitted}
+                        value={userAns || ''}
+                        onChange={e => setTestAnswers({ ...testAnswers, [q.id]: e.target.value })}
+                        placeholder="พิมพ์คำตอบของคุณที่นี่..."
+                        className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-500 text-sm font-medium outline-none bg-white"
+                      />
+                    )}
+
+                    {testSubmitted && (
+                      <div className={`mt-4 p-4 rounded-xl text-xs space-y-1 ${isCorrect ? 'bg-emerald-100 text-emerald-900 font-medium' : 'bg-red-100 text-red-900 font-medium'}`}>
+                        <div className="font-bold flex items-center space-x-1.5">
+                          {isCorrect ? <CheckCircle2 className="w-4 h-4 text-emerald-700" /> : <AlertCircle className="w-4 h-4 text-red-700" />}
+                          <span>{isCorrect ? 'ถูกต้อง!' : 'ยังไม่ถูกต้อง'}</span>
+                        </div>
+                        <div><strong className="font-bold">เฉลย:</strong> {Array.isArray(q.correctAnswer) ? q.correctAnswer.join(', ') : q.correctAnswer}</div>
+                        {q.explanation && <div><strong className="font-bold">คำอธิบาย:</strong> {q.explanation}</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {!testSubmitted && (
+                <button
+                  onClick={handleSubmitTest}
+                  className="w-full py-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-base shadow-lg shadow-indigo-200 transition"
+                >
+                  ส่งคำตอบและตรวจคะแนน
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: QUESTION BANK / SAVED EXAMS */}
+        {activeTab === 'bank' && (
+          <div className="space-y-6 animate-fadeIn">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-3xl font-extrabold text-slate-900">คลังข้อสอบที่บันทึกไว้</h2>
+                <p className="text-slate-600 text-sm">จัดการ โหลด หรือแก้ไขชุดข้อสอบทั้งหมดที่เคยสร้างไว้</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {savedExams.map((exam) => (
+                <div key={exam.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs hover:shadow-md transition flex flex-col justify-between space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-xs font-bold">
+                        {exam.subject} ({exam.gradeLevel})
+                      </span>
+                      <span className="text-xs text-slate-400">
+                        {new Date(exam.createdAt).toLocaleDateString('th-TH')}
+                      </span>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-900">{exam.title}</h3>
+                    <p className="text-xs text-slate-500 line-clamp-2">{exam.description}</p>
+                    <div className="text-xs font-semibold text-slate-600">
+                      จำนวน {exam.questions.length} ข้อ
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 pt-2 border-t border-slate-100">
+                    <button
+                      onClick={() => {
+                        setCurrentExam(exam);
+                        setActiveTab('editor');
+                      }}
+                      className="flex-1 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition flex items-center justify-center space-x-1"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>เปิดแก้ไข</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setCurrentExam(exam);
+                        handleStartTest();
+                      }}
+                      className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center justify-center space-x-1"
+                    >
+                      <PlayCircle className="w-3.5 h-3.5" />
+                      <span>ทดสอบ</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm('คุณต้องการลบชุดข้อสอบนี้ออกจากคลังใช่หรือไม่?')) {
+                          setSavedExams(savedExams.filter(e => e.id !== exam.id));
+                        }
+                      }}
+                      className="p-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 transition"
+                      title="ลบข้อสอบ"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* EDIT / ADD QUESTION MODAL */}
+      {editModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto shadow-2xl animate-fadeIn">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+              <h3 className="text-xl font-bold text-slate-900">
+                {editingQuestionIndex !== null ? 'แก้ไขข้อสอบ' : 'เพิ่มข้อสอบใหม่'}
+              </h3>
+              <button 
+                onClick={() => setEditModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 font-bold text-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">ประเภทคำถาม</label>
+                  <select
+                    value={tempQuestion.type}
+                    onChange={e => {
+                      const newType = e.target.value as any;
+                      let defaultChoices = tempQuestion.choices;
+                      if (newType === 'TRUE_FALSE') defaultChoices = ['จริง', 'เท็จ'];
+                      else if (newType === 'SHORT_ANSWER') defaultChoices = [];
+                      else if (defaultChoices.length === 0) defaultChoices = ['ตัวเลือก 1', 'ตัวเลือก 2', 'ตัวเลือก 3', 'ตัวเลือก 4'];
+                      
+                      setTempQuestion({
+                        ...tempQuestion,
+                        type: newType,
+                        choices: defaultChoices,
+                        correctAnswer: newType === 'TRUE_FALSE' ? 'จริง' : newType === 'SHORT_ANSWER' ? '' : defaultChoices[0]
+                      });
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm font-medium outline-none bg-white"
+                  >
+                    <option value="MULTIPLE_CHOICE">ปรนัย 4 ตัวเลือก</option>
+                    <option value="TRUE_FALSE">ถูก / ผิด</option>
+                    <option value="MULTIPLE_SELECT">เลือกตอบหลายข้อ (Checkboxes)</option>
+                    <option value="SHORT_ANSWER">เติมคำตอบสั้นๆ</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">คะแนน</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={tempQuestion.points}
+                    onChange={e => setTempQuestion({ ...tempQuestion, points: parseInt(e.target.value) || 1 })}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm font-medium outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">โจทย์คำถาม</label>
+                <textarea
+                  rows={3}
+                  value={tempQuestion.question}
+                  onChange={e => setTempQuestion({ ...tempQuestion, question: e.target.value })}
+                  placeholder="พิมพ์โจทย์คำถามที่นี่..."
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm font-medium outline-none"
+                />
+              </div>
+
+              {tempQuestion.type !== 'SHORT_ANSWER' && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-slate-700">ตัวเลือก (กำหนดคำตอบที่ถูกต้องด้วย)</label>
+                  {tempQuestion.choices.map((choice, cIdx) => (
+                    <div key={cIdx} className="flex items-center space-x-2">
+                      <input
+                        type={tempQuestion.type === 'MULTIPLE_SELECT' ? 'checkbox' : 'radio'}
+                        name="correctChoice"
+                        checked={
+                          Array.isArray(tempQuestion.correctAnswer)
+                            ? tempQuestion.correctAnswer.includes(choice)
+                            : tempQuestion.correctAnswer === choice
+                        }
+                        onChange={() => {
+                          if (tempQuestion.type === 'MULTIPLE_SELECT') {
+                            const currentCorrect = Array.isArray(tempQuestion.correctAnswer) ? tempQuestion.correctAnswer : [];
+                            const newCorrect = currentCorrect.includes(choice)
+                              ? currentCorrect.filter(c => c !== choice)
+                              : [...currentCorrect, choice];
+                            setTempQuestion({ ...tempQuestion, correctAnswer: newCorrect });
+                          } else {
+                            setTempQuestion({ ...tempQuestion, correctAnswer: choice });
+                          }
+                        }}
+                        className="w-4 h-4 text-indigo-600"
+                      />
+                      <input
+                        type="text"
+                        value={choice}
+                        onChange={e => {
+                          const updatedChoices = [...tempQuestion.choices];
+                          updatedChoices[cIdx] = e.target.value;
+                          setTempQuestion({ ...tempQuestion, choices: updatedChoices });
+                        }}
+                        className="flex-1 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updatedChoices = tempQuestion.choices.filter((_, i) => i !== cIdx);
+                          setTempQuestion({ ...tempQuestion, choices: updatedChoices });
+                        }}
+                        className="p-2 text-slate-400 hover:text-red-600"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTempQuestion({
+                        ...tempQuestion,
+                        choices: [...tempQuestion.choices, `ตัวเลือกที่ ${tempQuestion.choices.length + 1}`]
+                      });
+                    }}
+                    className="text-xs font-bold text-indigo-600 hover:underline pt-1"
+                  >
+                    + เพิ่มตัวเลือก
+                  </button>
+                </div>
+              )}
+
+              {tempQuestion.type === 'SHORT_ANSWER' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">เฉลยคำตอบสั้นๆ</label>
+                  <input
+                    type="text"
+                    value={tempQuestion.correctAnswer as string}
+                    onChange={e => setTempQuestion({ ...tempQuestion, correctAnswer: e.target.value })}
+                    placeholder="พิมพ์เฉลยคำตอบ..."
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm font-medium outline-none"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">คำอธิบายหรือเหตุผล (แสดงหลังส่งข้อสอบ)</label>
+                <textarea
+                  rows={2}
+                  value={tempQuestion.explanation}
+                  onChange={e => setTempQuestion({ ...tempQuestion, explanation: e.target.value })}
+                  placeholder="อธิบายเพิ่มเติมว่าเหตุใดจึงตอบข้อนี้..."
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm font-medium outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setEditModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={saveQuestionFromModal}
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold shadow-sm"
+                >
+                  บันทึกคำถาม
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

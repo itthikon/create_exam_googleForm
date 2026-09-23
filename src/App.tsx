@@ -447,10 +447,9 @@ const PRELOADED_EXAMS: Exam[] = [
 
 // Helper function to parse raw exam text into structured questions (Non-AI Rule-Based Parser)
 function parseExamTextToQuestions(text: string): Question[] {
-  // Normalize line endings and split blocks
+  // Normalize line endings and split blocks safely by anchoring to line beginnings
   const cleanText = text.replace(/\r\n/g, '\n');
-  // Split by question indicators like "1.", "2.", "ข้อ 1", "ข้อที่ 1", etc.
-  const rawQuestions = cleanText.split(/(?=(?:ข้อ\s*(?:ที่)?\s*\d+|question\s*\d+|\d+\s*[\.\)]))\s*/i).filter(q => q.trim().length > 0);
+  const rawQuestions = ('\n' + cleanText).split(/(?=\n\s*(?:ข้อ\s*(?:ที่)?\s*\d+|question\s*\d+|\d+[\.\)])\s+)/iu).filter(q => q.trim().length > 0);
   const questions: Question[] = [];
 
   for (let i = 0; i < rawQuestions.length; i++) {
@@ -459,13 +458,20 @@ function parseExamTextToQuestions(text: string): Question[] {
 
     if (lines.length === 0) continue;
 
-    let questionText = lines[0].replace(/^(ข้อ\s*(?:ที่)?\s*\d+|question\s*\d+|\d+[\.\)]\s*)/i, '').trim();
+    let rawLine0 = lines[0];
+    let questionText = rawLine0.replace(/^(ข้อ\s*(?:ที่)?\s*\d+|question\s*\d+|\d+[\.\)]?\s*)/i, '').trim();
+    let startIndex = 1;
+
+    if ((!questionText || /^\d+$/.test(questionText)) && lines.length > 1) {
+      questionText = lines[1];
+      startIndex = 2;
+    }
     let choices: string[] = [];
     let correctAnswer = '';
     let explanation = '';
     let type: 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MULTIPLE_SELECT' | 'SHORT_ANSWER' = 'MULTIPLE_CHOICE';
 
-    for (let j = 1; j < lines.length; j++) {
+    for (let j = startIndex; j < lines.length; j++) {
       const line = lines[j];
       
       // Check for answers/explanations first
@@ -556,24 +562,19 @@ function parseExamTextToQuestions(text: string): Question[] {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'importer' | 'editor' | 'export' | 'preview' | 'bank'>('importer');
-  
-  const [currentExam, setCurrentExam] = useState<Exam>({
-    id: 'exam-' + Date.now(),
-    title: 'แบบทดสอบใหม่',
-    description: 'นำเข้าจากไฟล์ Text, Word, PDF หรือคัดลอกข้อความ',
-    subject: 'ทั่วไป',
-    gradeLevel: 'มัธยมศึกษา',
-    questions: PRELOADED_EXAMS[0].questions,
-    createdAt: new Date().toISOString()
-  });
 
   const [savedExams, setSavedExams] = useState<Exam[]>(() => {
-    const saved = localStorage.getItem('quizform_saved_exams_non_ai');
+    const saved = localStorage.getItem('quizform_saved_exams_non_ai_v3');
     if (saved) {
-      try { return JSON.parse(saved); } catch (e) { /* ignore */ }
+      try { 
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) { /* ignore */ }
     }
     return PRELOADED_EXAMS;
   });
+
+  const [currentExam, setCurrentExam] = useState<Exam>(() => savedExams[0] || PRELOADED_EXAMS[0]);
 
   // Importer state
   const [rawText, setRawText] = useState(`1. คุณธรรมในข้อใดไม่สัมพันธ์กับเศรษฐกิจพอเพียง
@@ -887,7 +888,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('quizform_saved_exams_non_ai', JSON.stringify(savedExams));
+    localStorage.setItem('quizform_saved_exams_non_ai_v3', JSON.stringify(savedExams));
   }, [savedExams]);
 
   useEffect(() => {

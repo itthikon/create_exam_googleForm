@@ -69,8 +69,10 @@ const PRELOADED_EXAMS: Exam[] = [
 
 // Helper function to parse raw exam text into structured questions (Non-AI Rule-Based Parser)
 function parseExamTextToQuestions(text: string): Question[] {
-  // Split by question indicators like "1.", "2.", "ข้อ 1", "Question 1", etc.
-  const rawQuestions = text.split(/(?=(?:ข้อ\s*\d+|question\s*\d+|\d+\s*[\.\)]))\s*/i).filter(q => q.trim().length > 0);
+  // Normalize line endings and split blocks
+  const cleanText = text.replace(/\r\n/g, '\n');
+  // Split by question indicators like "1.", "2.", "ข้อ 1", "ข้อที่ 1", etc.
+  const rawQuestions = cleanText.split(/(?=(?:ข้อ\s*(?:ที่)?\s*\d+|question\s*\d+|\d+\s*[\.\)]))\s*/i).filter(q => q.trim().length > 0);
   const questions: Question[] = [];
 
   for (let i = 0; i < rawQuestions.length; i++) {
@@ -79,7 +81,7 @@ function parseExamTextToQuestions(text: string): Question[] {
 
     if (lines.length === 0) continue;
 
-    let questionText = lines[0].replace(/^(ข้อ\s*\d+|question\s*\d+|\d+[\.\)]\s*)/i, '').trim();
+    let questionText = lines[0].replace(/^(ข้อ\s*(?:ที่)?\s*\d+|question\s*\d+|\d+[\.\)]\s*)/i, '').trim();
     let choices: string[] = [];
     let correctAnswer = '';
     let explanation = '';
@@ -87,33 +89,46 @@ function parseExamTextToQuestions(text: string): Question[] {
 
     for (let j = 1; j < lines.length; j++) {
       const line = lines[j];
-      // Check for choices (e.g., "ก.", "ข.", "A.", "B.", "1)", etc.)
-      if (/^([กขคงคจฉชซฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮa-d][\.\)]|\d+[\.\)])/i.test(line)) {
-        const choiceText = line.replace(/^([กขคงคจฉชซฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮa-d][\.\)]|\d+[\.\)])/i, '').trim();
+      
+      // Check for answers/explanations first
+      if (/^(เฉลย|คำตอบ|answer)\s*[:：]\s*/i.test(line)) {
+        correctAnswer = line.replace(/^(เฉลย|คำตอบ|answer)\s*[:：]\s*/i, '').trim();
+        continue;
+      }
+      if (/^(คำอธิบาย|เหตุผล|explanation)\s*[:：]\s*/i.test(line)) {
+        explanation = line.replace(/^(คำอธิบาย|เหตุผล|explanation)\s*[:：]\s*/i, '').trim();
+        continue;
+      }
+
+      // Check for choices: e.g. "ก.", "ข.", "(ก)", "A.", "1)", etc.
+      const choiceMatch = line.match(/^[\(\[]?\s*([ก-ฮa-d\d])\s*[\.\)\]]\s*(.+)$/i);
+      if (choiceMatch) {
+        const choiceText = choiceMatch[2].trim();
         choices.push(choiceText);
-      } else if (/^(เฉลย|คำตอบ|answer)\s*[:：]/i.test(line)) {
-        correctAnswer = line.replace(/^(เฉลย|คำตอบ|answer)\s*[:：]/i, '').trim();
-      } else if (/^(คำอธิบาย|เหตุผล|explanation)\s*[:：]/i.test(line)) {
-        explanation = line.replace(/^(คำอธิบาย|เหตุผล|explanation)\s*[:：]/i, '').trim();
       } else {
+        // If no choice prefix matched, check if it's a continuation of question or explanation or choice
         if (choices.length === 0 && !correctAnswer) {
           questionText += ' ' + line;
-        } else if (!explanation && correctAnswer) {
+        } else if (choices.length > 0 && !correctAnswer) {
+          // Maybe a choice without explicit prefix or multi-line choice
+          choices[choices.length - 1] += ' ' + line;
+        } else if (correctAnswer && !explanation) {
           explanation = line;
         }
       }
     }
 
+    // Fallback choices if none detected
     if (choices.length === 0) {
       choices = ['ตัวเลือก 1', 'ตัวเลือก 2', 'ตัวเลือก 3', 'ตัวเลือก 4'];
     }
 
+    // Resolve answer mapping
     if (!correctAnswer && choices.length > 0) {
       correctAnswer = choices[0];
     } else {
-      // Map letter answer (e.g. "ง", "ข.", "a", etc.) to actual choice text
-      const thaiLetters = ['ก', 'ข', 'ค', 'ง', 'จ', 'ฉ', 'ช', 'ซ'];
-      const cleanAns = correctAnswer.replace(/[\.\s:]/g, '').toLowerCase();
+      const thaiLetters = ['ก', 'ข', 'ค', 'ง', 'จ', 'ฉ', 'ช', 'ซ', 'ฌ', 'ญ'];
+      const cleanAns = correctAnswer.replace(/[\.\s:\(\)]/g, '').toLowerCase();
       
       if (thaiLetters.includes(cleanAns)) {
         const idx = thaiLetters.indexOf(cleanAns);
@@ -130,10 +145,18 @@ function parseExamTextToQuestions(text: string): Question[] {
         if (idx >= 0 && idx < choices.length) {
           correctAnswer = choices[idx];
         }
+      } else {
+        // Try matching substring or exact match
+        const matchedChoice = choices.find(c => c.toLowerCase().includes(cleanAns) || cleanAns.includes(c.toLowerCase()));
+        if (matchedChoice) {
+          correctAnswer = matchedChoice;
+        } else {
+          correctAnswer = choices[0];
+        }
       }
     }
 
-    if (choices.length === 2 && (choices.includes('จริง') || choices.includes('เท็จ') || choices.includes('True') || choices.includes('False'))) {
+    if (choices.length === 2 && (choices.some(c => c.includes('จริง') || c.includes('เท็จ') || c.toLowerCase().includes('true') || c.toLowerCase().includes('false')))) {
       type = 'TRUE_FALSE';
     } else if (choices.length === 0) {
       type = 'SHORT_ANSWER';

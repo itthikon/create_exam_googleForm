@@ -546,7 +546,7 @@ function parseExamTextToQuestions(text: string): Question[] {
       question: questionText || `คำถามที่ ${i + 1}`,
       choices: type === 'SHORT_ANSWER' ? [] : choices,
       correctAnswer: correctAnswer || choices[0] || '',
-      explanation: explanation || 'เฉลยตามเกณฑ์ที่กำหนด',
+      explanation: explanation || '',
       points: 1
     });
   }

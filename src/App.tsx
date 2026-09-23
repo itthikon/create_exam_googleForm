@@ -110,6 +110,27 @@ function parseExamTextToQuestions(text: string): Question[] {
 
     if (!correctAnswer && choices.length > 0) {
       correctAnswer = choices[0];
+    } else {
+      // Map letter answer (e.g. "ง", "ข.", "a", etc.) to actual choice text
+      const thaiLetters = ['ก', 'ข', 'ค', 'ง', 'จ', 'ฉ', 'ช', 'ซ'];
+      const cleanAns = correctAnswer.replace(/[\.\s:]/g, '').toLowerCase();
+      
+      if (thaiLetters.includes(cleanAns)) {
+        const idx = thaiLetters.indexOf(cleanAns);
+        if (idx >= 0 && idx < choices.length) {
+          correctAnswer = choices[idx];
+        }
+      } else if (['a', 'b', 'c', 'd', 'e'].includes(cleanAns)) {
+        const idx = cleanAns.charCodeAt(0) - 97;
+        if (idx >= 0 && idx < choices.length) {
+          correctAnswer = choices[idx];
+        }
+      } else if (/^\d+$/.test(cleanAns)) {
+        const idx = parseInt(cleanAns, 10) - 1;
+        if (idx >= 0 && idx < choices.length) {
+          correctAnswer = choices[idx];
+        }
+      }
     }
 
     if (choices.length === 2 && (choices.includes('จริง') || choices.includes('เท็จ') || choices.includes('True') || choices.includes('False'))) {
@@ -154,19 +175,20 @@ export default function App() {
   });
 
   // Importer state
-  const [rawText, setRawText] = useState(`1. เมืองหลวงของประเทศไทยคือเมืองใด?
+  const [rawText, setRawText] = useState(`1. คุณธรรมในข้อใดไม่สัมพันธ์กับเศรษฐกิจพอเพียง
+    ก.สติ : ระลึก ตระหนักในการกระทําของตนตามหลักเหตุและผล
+    ข.ปัญญา : เพียงพอบนความรอบรู้และเหตุผล ฉลาดคิด ใช้และทำ
+    ค.คุณธรรม : ไม่เบียดเบียนตนเอง ผู้อื่น และทรัพยากรธรรมชาติ
+    ง.วัฒนธรรม : ปรับวัฒนธรรมให้ทันสมัยกับการเปลี่ยนแปลงของโลก
+เฉลย : ง
+
+2. เมืองหลวงของประเทศไทยคือเมืองใด?
 ก. เชียงใหม่
 ข. กรุงเทพมหานคร
 ค. ภูเก็ต
 ง. ขอนแก่น
 เฉลย: ข. กรุงเทพมหานคร
-คำอธิบาย: กรุงเทพมหานครเป็นเมืองหลวงและศูนย์กลางการปกครองของประเทศไทย
-
-2. ดวงอาทิตย์ขึ้นทางทิศตะวันตก True หรือ False?
-ก. จริง
-ข. เท็จ
-เฉลย: เท็จ
-คำอธิบาย: ดวงอาทิตย์ขึ้นทางทิศตะวันออกและตกทางทิศตะวันตก`);
+คำอธิบาย: กรุงเทพมหานครเป็นเมืองหลวงและศูนย์กลางการปกครองของประเทศไทย`);
 
   const [importTitle, setImportTitle] = useState('แบบทดสอบนำเข้าอัตโนมัติ');
   const [importSubject, setImportSubject] = useState('ทั่วไป');

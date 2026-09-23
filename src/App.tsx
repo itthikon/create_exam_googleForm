@@ -479,7 +479,7 @@ function parseExamTextToQuestions(text: string): Question[] {
       }
 
       // Check for choices: e.g. "ก.", "ข.", "(ก)", "A.", "1)", etc.
-      const choiceMatch = line.match(/^[\(\[]?\s*([ก-ฮa-d\d])\s*[\.\)\]]\s*(.+)$/i);
+      const choiceMatch = line.match(/^[\(\[]?\s*([ก-ฮa-d\d])\s*[\.\)\]]\s*(.+)$/iu);
       if (choiceMatch) {
         const choiceText = choiceMatch[2].trim();
         choices.push(choiceText);
